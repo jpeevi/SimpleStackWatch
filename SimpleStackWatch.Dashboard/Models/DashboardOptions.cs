@@ -45,6 +45,7 @@ public sealed class MonitorOptions
 {
     public bool Enabled { get; set; }
     public string BaseUrl { get; set; } = "http://127.0.0.1:52323";
+    public string MetricsBaseUrl { get; set; } = "http://127.0.0.1:52325";
     public string ApiKey { get; set; } = "";
 }
 public sealed class PostgresOptions
