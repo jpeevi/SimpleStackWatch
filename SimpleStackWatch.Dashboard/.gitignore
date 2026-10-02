@@ -4,3 +4,4 @@ data/
 logs/
 *.user
 appsettings.Local.json
+Properties/
