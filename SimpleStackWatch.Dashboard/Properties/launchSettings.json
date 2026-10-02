@@ -13,7 +13,10 @@
         "Dashboard__Aws__Enabled": "false",
         "Dashboard__Aws__Region": "ap-south-1",
         "Dashboard__Aws__MetricWindowMinutes": "15",
-        "Dashboard__Aws__MetricPeriodSeconds": "300"
+        "Dashboard__Aws__MetricPeriodSeconds": "300",
+
+        "Urls": "http://127.0.0.1:5080",
+        "AllowedHosts": "localhost;127.0.0.1;stackwatch.lumestack.local"
       }
     }
   }
