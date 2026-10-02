@@ -7,16 +7,22 @@
         "ASPNETCORE_ENVIRONMENT": "Development",
         "DOTNET_WATCH_RESTART_ON_RUDE_EDIT": "true",
         "DOTNET_WATCH_SUPPRESS_LAUNCH_BROWSER": "1",
+        "Urls": "http://127.0.0.1:5080",
+        "AllowedHosts": "localhost;127.0.0.1;stackwatch.lumestack.local",
+        "Dashboard__Logs__Folders__0__Id": "nginx",
+        "Dashboard__Logs__Folders__0__Name": "Nginx",
+        "Dashboard__Logs__Folders__0__Folder": "/var/log/nginx",
+        "Dashboard__Processes__Monitor__Enabled": "false",
+        "Dashboard__Processes__Monitor__BaseUrl": "http://127.0.0.1:52323",
+        "Dashboard__Processes__Monitor__ApiKey": "",
+        "Dashboard__Postgres__Databases__0__Name": "DevSolution",
         "Dashboard__Postgres__Databases__0__ConnectionString": "Host=127.0.0.1;Port=5432;Database=devsolution;Username=postgres;Password=password;Timeout=5;Command Timeout=5",
         "Dashboard__Redis__ConnectionString": "127.0.0.1:6379,connectTimeout=5000,asyncTimeout=5000,allowAdmin=true",
         "Dashboard__Logs__Database__ConnectionString": "Host=127.0.0.1;Port=5432;Database=devsolution;Username=postgres;Password=YOUR_PASSWORD;Timeout=5;Command Timeout=5",
         "Dashboard__Aws__Enabled": "false",
         "Dashboard__Aws__Region": "ap-south-1",
         "Dashboard__Aws__MetricWindowMinutes": "15",
-        "Dashboard__Aws__MetricPeriodSeconds": "300",
-
-        "Urls": "http://127.0.0.1:5080",
-        "AllowedHosts": "localhost;127.0.0.1;stackwatch.lumestack.local"
+        "Dashboard__Aws__MetricPeriodSeconds": "300"
       }
     }
   }
