@@ -1,28 +1,19 @@
-# Build outputs
 bin/
 obj/
 publish/
 artifacts/
-
-# IDE and user settings
 .idea/
 .vs/
 *.user
 *.suo
 *.DotSettings.user
 Properties/*
-
-# Authentication data and keys
 data*/
 users.db
 users.db-*
 .serilog-viewer/
-
-# Logs
 logs/
 *.log
-
-# Environment files and secrets
 .env
 .env.*
 !.env.example
@@ -30,11 +21,8 @@ systemd.env
 *.pfx
 *.p12
 *-key.pem
-
-# Local tools
 tools/
-
-# Frontend dependencies
 node_modules/
-
-testconfig.json
+SimpleStackWatch.Dashboard/Properties
+SimpleStackWatchDashboard.Test/testconfig.json
+SimpleStackWatch.Dashboard/data
