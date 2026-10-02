@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="SimpleStackWatch.Dashboard/SimpleStackWatch.Dashboard.csproj" />
+  <Project Path="SimpleStackWatchDashboard.Test/SimpleStackWatchDashboard.Test.csproj" />
+</Solution>

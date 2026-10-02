@@ -1,0 +1,21 @@
+:root { --watch-background: #f5f7fa; --watch-brand: #172334; --watch-nav: #52637a; --watch-active: #245dbe; --watch-table-heading: #66748a; }
+[data-bs-theme="dark"] { --watch-background: #141a23; --watch-brand: #e4ebf5; --watch-nav: #a9b9ce; --watch-active: #9ac0ff; --watch-table-heading: #a9b9ce; }
+body { background: var(--watch-background); color: var(--bs-body-color); }
+.brand { color: var(--watch-brand); font-weight: 700; font-size: 1.2rem; letter-spacing: -.04em; }
+.brand-dot { color: #3e79e8; font-size: .65rem; padding-left: .35rem; }
+.auth-panel { max-width: 420px; margin: 7vh auto; }
+.table { margin-bottom: 0; font-size: .88rem; }
+.table th { color: var(--watch-table-heading); font-size: .76rem; font-weight: 600; white-space: nowrap; padding: .9rem 1rem; }
+.table td { padding: .8rem 1rem; vertical-align: middle; }
+.cell-query { min-width: 220px; max-width: 420px; overflow-wrap: anywhere; white-space: pre-wrap; font-family: monospace; }
+.viewer-frame { width: 100%; height: calc(100vh - 260px); min-height: 480px; border: 1px solid var(--bs-border-color); border-radius: .5rem; background: var(--bs-body-bg); }
+.diagnostic-output { max-height: 480px; overflow: auto; background: #172334; color: #e4ebf5; border-radius: .4rem; padding: 1rem; font-size: .8rem; }
+.card { overflow: hidden; }
+#health-status:empty { display: none; }
+
+.sidebar { position: fixed; inset: 0 auto 0 0; width: min(270px, 85vw); z-index: 1050; overflow-y: auto; }
+.sidebar .nav-link { color: var(--watch-nav); padding: .8rem 1rem; }
+.sidebar .nav-link:hover { background: var(--bs-tertiary-bg); }
+.sidebar .nav-link.active { color: var(--watch-active); font-weight: 600; background: rgba(var(--bs-primary-rgb), .12); }
+.menu-backdrop { position: fixed; inset: 0; z-index: 1040; background: rgba(0, 0, 0, .5); }
+body.menu-open { overflow: hidden; }

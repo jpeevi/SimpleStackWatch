@@ -1,0 +1,10 @@
+@{ ViewData["Title"] = "Verify sign in"; }
+<div class="auth-panel card border-0 shadow-sm"><div class="card-body p-4">
+<h1 class="h4 mb-1">Verify sign in</h1><p class="text-secondary small mb-4">Enter your Google Authenticator code.</p>
+@if (ViewData["Error"] is string error) { <div class="alert alert-danger" role="alert">@error</div> }
+<form action="/account/verify" method="post">@Html.AntiForgeryToken()
+<label class="form-label" for="code">Authenticator or recovery code</label><input class="form-control mb-3" id="code" name="code" autocomplete="one-time-code" maxlength="64" required autofocus>
+<div class="form-check mb-4"><input class="form-check-input" type="checkbox" id="recovery" name="recovery" value="true"><label class="form-check-label" for="recovery">Use a recovery code</label></div>
+<button class="btn btn-primary w-100">Sign in</button></form>
+<a class="small d-inline-block mt-3" href="/account/login">Back to sign in</a>
+</div></div>

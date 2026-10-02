@@ -1,0 +1,43 @@
+@{ var currentTab = ViewContext.RouteData.Values["tab"]?.ToString() ?? "logs"; }
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@ViewData["Title"] · SimpleStackWatch</title>
+<script src="~/js/theme.js" asp-append-version="true"></script>
+<link rel="stylesheet" href="~/vendor/bootstrap.min.css" asp-append-version="true">
+<link rel="stylesheet" href="~/css/site.css" asp-append-version="true"></head>
+<body>
+<div id="app-shell">
+<header class="border-bottom bg-body"><div class="container-fluid px-4 py-3 d-flex flex-wrap align-items-center gap-3">
+@if (User.Identity?.IsAuthenticated == true) {
+<button id="menu-toggle" type="button" class="btn btn-sm btn-outline-secondary" aria-label="Open navigation" aria-controls="sidebar-menu" aria-expanded="false">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" /></svg>
+</button>
+}
+<a href="/" class="brand text-decoration-none">SimpleStackWatch<span class="brand-dot">●</span></a>
+<div class="ms-auto d-flex align-items-center gap-3">
+@if (User.Identity?.IsAuthenticated == true) { <span class="small text-secondary">@User.Identity.Name</span> }
+<button id="theme-toggle" type="button" class="btn btn-sm btn-outline-secondary" aria-label="Dark mode" aria-pressed="false" hidden>Dark mode</button>
+@if (User.Identity?.IsAuthenticated == true) {
+<form action="/account/logout" method="post">@Html.AntiForgeryToken()<button class="btn btn-sm btn-outline-secondary">Sign out</button></form>
+}
+</div>
+</div></header>
+<main class="container-fluid px-4 py-4">@RenderBody()</main>
+</div>
+@if (User.Identity?.IsAuthenticated == true) {
+<div id="menu-backdrop" class="menu-backdrop" hidden></div>
+<aside id="sidebar-menu" class="sidebar bg-body border-end shadow" role="dialog" aria-modal="true" aria-labelledby="sidebar-title" hidden>
+<div class="d-flex align-items-center justify-content-between p-3 border-bottom">
+<h2 id="sidebar-title" class="h6 mb-0">SimpleStackWatch</h2>
+<button id="menu-close" class="btn-close" type="button" aria-label="Close navigation"></button>
+</div>
+<nav class="nav flex-column p-3 gap-1" aria-label="Monitoring sections">
+@foreach (var tab in new[] { ("logs", "Logs"), ("processes", ".NET processes"), ("postgres", "PostgreSQL"), ("redis", "Redis"), ("ec2", "EC2") }) {
+<a class="nav-link rounded @(currentTab == tab.Item1 ? "active" : "")" aria-current="@(currentTab == tab.Item1 ? "page" : null)" href="/dashboard/@tab.Item1">@tab.Item2</a>
+}
+</nav>
+</aside>
+<script type="module" src="~/js/navigation.js" asp-append-version="true"></script>
+}
+@await RenderSectionAsync("Scripts", required: false)
+</body></html>

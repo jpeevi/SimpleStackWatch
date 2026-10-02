@@ -1,0 +1,46 @@
+@model DashboardViewModel
+@{ ViewData["Title"] = Model.Tab switch { "processes" => ".NET processes", "postgres" => "PostgreSQL", "redis" => "Redis", "ec2" => "EC2", _ => "Logs" }; }
+<div id="dashboard" data-tab="@Model.Tab" data-refresh="@Model.RefreshSeconds">
+
+<div class="d-flex flex-wrap align-items-center gap-3 mb-3"><h1 class="h4 mb-0">@ViewData["Title"]</h1>
+@if (Model.Tab != "logs") {
+<span id="health-status" class="badge text-bg-secondary"></span><span id="updated" class="small text-secondary ms-auto" aria-live="polite"></span>
+<label class="small d-flex align-items-center gap-2"><input id="auto-refresh" type="checkbox" checked> Auto refresh</label>
+<button id="refresh" class="btn btn-sm btn-outline-primary">Refresh</button>
+}
+</div>
+@if (Model.Tab == "postgres") {
+<div class="d-flex align-items-center gap-2 mb-3">
+<label for="postgres-database" class="small">Database</label>
+<select id="postgres-database" class="form-select form-select-sm w-auto" disabled><option>Loading databases…</option></select>
+</div>
+}
+<div id="error" class="alert alert-danger d-none" role="alert"></div>
+@if (Model.Tab == "logs") {
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+@if (Model.FileLogs) {
+<label for="log-folder" class="small">Folder</label>
+<select id="log-folder" class="form-select form-select-sm w-auto">
+@foreach (var folder in Model.LogFolders) { <option value="@folder.Url">@folder.Name</option> }
+</select>
+<button id="file-logs" class="btn btn-sm btn-outline-primary log-source" data-src="@Model.LogFolders[0].Url">File logs</button>
+}
+@if (Model.DatabaseLogs) { <button class="btn btn-sm btn-outline-primary log-source" data-src="/integrations/database-logs/">Database logs</button> }
+</div>
+@if (Model.FileLogs || Model.DatabaseLogs) { <iframe id="log-frame" title="Log viewer" class="viewer-frame" src="@(Model.FileLogs ? Model.LogFolders[0].Url : "/integrations/database-logs/")"></iframe> }
+else { <p class="text-secondary">No log viewer is enabled. Configure a log folder or database on the server.</p> }
+} else {
+<div id="content" class="card border-0 shadow-sm"><div class="card-body text-secondary">Loading…</div></div>
+}
+@if (Model.Tab == "processes") {
+<section class="mt-4"><div class="d-flex align-items-center gap-3 mb-2"><h2 class="h6 mb-0">Runtime counters</h2><span class="small text-secondary">Choose Sample beside a process.</span></div><div id="counter-content" class="card border-0 shadow-sm"><div class="card-body text-secondary small">No process selected.</div></div></section>
+@if (Model.MonitorEnabled) {
+<section class="mt-4"><div class="d-flex align-items-center gap-3 mb-2"><h2 class="h6 mb-0">dotnet-monitor</h2><button id="monitor-processes" class="btn btn-sm btn-outline-secondary">Processes</button><button id="monitor-metrics" class="btn btn-sm btn-outline-secondary">Metrics</button></div><pre id="monitor-output" class="diagnostic-output"></pre></section>
+}
+<p class="small text-secondary mt-3">CPU is measured between refreshes; 100% equals one CPU core. Metrics show processes accessible to this server.</p>
+}
+@if (Model.Tab is "postgres" or "redis") { <a class="small d-inline-block mt-3" href="/integrations/health" target="_blank" rel="noopener">Health history ↗</a> }
+@if (Model.Tab == "ec2") { <p class="small text-secondary mt-3">CloudWatch values are the latest available datapoints, not live readings. Network values are totals per configured period. Memory and filesystem usage require additional agent metrics.</p> }
+</div>
+<form id="csrf" hidden>@Html.AntiForgeryToken()</form>
+@section Scripts { <script type="module" src="~/js/dashboard.js" asp-append-version="true"></script> }

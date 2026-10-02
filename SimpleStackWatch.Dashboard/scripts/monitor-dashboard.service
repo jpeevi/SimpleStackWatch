@@ -1,0 +1,21 @@
+[Unit]
+Description=Monitor Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=monitor-dashboard
+Group=monitor-dashboard
+WorkingDirectory=/opt/monitor-dashboard
+ExecStart=/usr/bin/dotnet /opt/monitor-dashboard/MonitorDashboard.dll
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5080
+Environment=Dashboard__DataDirectory=/var/lib/monitor-dashboard
+EnvironmentFile=-/etc/monitor-dashboard.env
+Restart=on-failure
+UMask=0077
+NoNewPrivileges=true
+
+# Do not enable PrivateTmp without arranging shared .NET diagnostic sockets.
+[Install]
+WantedBy=multi-user.target

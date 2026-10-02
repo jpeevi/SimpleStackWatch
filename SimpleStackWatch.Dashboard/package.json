@@ -1,0 +1,1 @@
+{"private":true,"type":"module","scripts":{"test":"node --test tests/frontend.test.js","check":"node --check wwwroot/js/dashboard.js && node --check wwwroot/js/format.js"}}
