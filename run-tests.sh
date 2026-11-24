@@ -25,12 +25,25 @@ fi
 
 failed=0
 
-printf '\n=== .NET tests (Release) ===\n'
-if dotnet test "$SOLUTION" --configuration Release; then
-  dotnet_result=PASS
+cd "$ROOT_DIR"
+
+printf '\n=== Full solution rebuild (Release) ===\n'
+if dotnet clean "$SOLUTION" --configuration Release &&
+   dotnet restore "$SOLUTION" &&
+   dotnet build "$SOLUTION" --configuration Release --no-restore --no-incremental; then
+  build_result=PASS
+  printf '\n=== .NET tests (Release) ===\n'
+  if dotnet test "$SOLUTION" --configuration Release --no-build --no-restore; then
+    dotnet_result=PASS
+  else
+    dotnet_result=FAIL
+    failed=1
+  fi
 else
-  dotnet_result=FAIL
+  build_result=FAIL
+  dotnet_result=SKIPPED
   failed=1
+  printf 'ERROR: Solution rebuild failed; .NET tests skipped.\n' >&2
 fi
 
 printf '\n=== Frontend tests ===\n'
@@ -49,6 +62,6 @@ else
   failed=1
 fi
 
-printf '\n=== Summary ===\n.NET tests: %s\nFrontend tests: %s\nJS syntax checks: %s\n' \
-  "$dotnet_result" "$frontend_result" "$syntax_result"
+printf '\n=== Summary ===\n.NET rebuild: %s\n.NET tests: %s\nFrontend tests: %s\nJS syntax checks: %s\n' \
+  "$build_result" "$dotnet_result" "$frontend_result" "$syntax_result"
 exit "$failed"

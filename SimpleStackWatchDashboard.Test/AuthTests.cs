@@ -205,13 +205,22 @@ public sealed class AuthTests(DashboardFixture fixture) : IClassFixture<Dashboar
     {
         var user = await fixture.UserAsync();
         using var client = fixture.Client();
-        await PasswordAsync(client, user.Name);
+        Assert.Equal(HttpStatusCode.Redirect, (await PasswordAsync(client, user.Name)).StatusCode);
+        // Capture the form token while the pending MFA challenge is still valid.
+        var token = await TokenAsync(client, "/account/verify");
         using (var scope = fixture.Factory.Services.CreateScope())
         {
             var users = scope.ServiceProvider.GetRequiredService<UserManager<DashboardUser>>();
             Assert.True((await users.UpdateSecurityStampAsync((await users.FindByNameAsync(user.Name))!)).Succeeded);
         }
-        var response = await VerifyAsync(client, Totp(user.Key));
+        // Submit the previously issued form without fetching a new token after reset.
+        using var response = await client.PostAsync("/account/verify", new FormUrlEncodedContent(
+            new Dictionary<string, string>
+            {
+                ["code"] = Totp(user.Key),
+                ["recovery"] = "false",
+                ["__RequestVerificationToken"] = token
+            }));
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.Equal("/account/login", response.Headers.Location?.OriginalString);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/redis")).StatusCode);

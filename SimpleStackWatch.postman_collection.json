@@ -1,0 +1,812 @@
+{
+  "info": {
+    "name": "SimpleStackWatch — MCP",
+    "description": "Public-safe sample for the read-only SimpleStackWatch MCP endpoint (stateless Streamable HTTP).\n\nSetup:\n1. Enable Dashboard__Mcp__Enabled and set Dashboard__Mcp__BearerToken privately (32–512 non-whitespace characters). Restart the dashboard. For local development use the private launch profile; for deployment use the private environment file.\n2. Import this collection into Postman. Set baseUrl to your dashboard address (no trailing slash). Set bearerToken in a private local environment or local variable value, not the shared collection value. Use HTTPS for remote servers and an approved source IP if Nginx allowlisting is configured. Never share or export real tokens or target IDs.\n3. Send Initialize, Initialized notification, Ping, List tools, Get overview and List targets in order. Inspect the returned tool content and set targetId privately to an exact configured ID. Then send Get target status and Get target history. To run the entire collection, configure targetId first. A configured target is required for these last two calls; an empty history is valid.\n4. Run Missing token and Invalid token with MCP enabled. Both should return 401 (disabled MCP returns 404). No cookie/session is required; a dashboard login cookie is not an MCP credential.\n\nAll positive requests inherit Bearer authentication. The initialization test retains the negotiated protocol version (not a secret). Tests handle JSON and SSE response bodies. If Postman displays SSE as a stream, wait for the response to close. The monitoring tools are read-only and do not trigger new polling or resource changes. See README.md for configuration and deployment. Do not run against systems you are not authorized to monitor.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{bearerToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5080",
+      "type": "string",
+      "description": "Dashboard base URL, without trailing slash."
+    },
+    {
+      "key": "mcpPath",
+      "value": "/api/mcp",
+      "type": "string",
+      "description": "MCP HTTP route."
+    },
+    {
+      "key": "bearerToken",
+      "value": "",
+      "type": "string",
+      "description": "Set privately; never export or commit the populated value."
+    },
+    {
+      "key": "targetId",
+      "value": "",
+      "type": "string",
+      "description": "Exact configured target ID from List targets. Set privately."
+    },
+    {
+      "key": "historyLimit",
+      "value": "50",
+      "type": "string",
+      "description": "Number of stored checks (1–200)."
+    },
+    {
+      "key": "protocolVersion",
+      "value": "2025-06-18",
+      "type": "string",
+      "description": "Requested MCP protocol version; updated after successful initialization."
+    }
+  ],
+  "item": [
+    {
+      "name": "01 — Protocol",
+      "item": [
+        {
+          "name": "01 Initialize",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"initialize\",\n  \"params\": {\n    \"protocolVersion\": \"{{protocolVersion}}\",\n    \"capabilities\": {},\n    \"clientInfo\": {\n      \"name\": \"SimpleStackWatch Postman\",\n      \"version\": \"1.0.0\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}{{mcpPath}}",
+            "description": "Run first. Requests the same MCP version used by the application integration tests. The server may negotiate another supported version; the test saves only that non-secret protocol version."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "const raw = pm.response.text();",
+                  "const request = JSON.parse(pm.variables.replaceIn(pm.request.body.raw));",
+                  "let message;",
+                  "if (/text\\/event-stream/i.test(contentType)) {",
+                  "    const events = raw.replace(/\\r\\n/g, \"\\n\").split(/\\n\\n/);",
+                  "    for (const event of events) {",
+                  "        const data = event.split(\"\\n\").filter(line => line.startsWith(\"data:\"))",
+                  "            .map(line => line.slice(5).replace(/^ /, \"\")).join(\"\\n\");",
+                  "        if (!data) continue;",
+                  "        let candidate;",
+                  "        try { candidate = JSON.parse(data); } catch (_) { continue; }",
+                  "        if (candidate && candidate.id === request.id) { message = candidate; break; }",
+                  "    }",
+                  "} else if (/application\\/json/i.test(contentType)) {",
+                  "    try { message = JSON.parse(raw); } catch (_) { /* assertion below reports failure */ }",
+                  "}",
+                  "pm.test(\"Matching JSON-RPC success response\", () => {",
+                  "    pm.expect(message, \"Expected a JSON or SSE JSON-RPC reply\").to.be.an(\"object\");",
+                  "    pm.expect(message.jsonrpc).to.equal(\"2.0\");",
+                  "    pm.expect(message.id).to.equal(request.id);",
+                  "    pm.expect(message).not.to.have.property(\"error\");",
+                  "    pm.expect(message).to.have.property(\"result\");",
+                  "});",
+                  "pm.test(\"Server negotiated protocol and advertises tools\", () => {",
+                  "    pm.expect(message.result.protocolVersion).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(message.result.serverInfo.name).to.be.a(\"string\");",
+                  "    pm.expect(message.result.capabilities).to.have.property(\"tools\");",
+                  "    pm.collectionVariables.set(\"protocolVersion\", message.result.protocolVersion);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Initialized notification",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream",
+                "type": "text"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "{{protocolVersion}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"notifications/initialized\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}{{mcpPath}}",
+            "description": "Send after Initialize. Notifications have no JSON-RPC id and a successful server returns HTTP 202 with no response body."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Notification accepted (202)\", () => pm.response.to.have.status(202));",
+                  "pm.test(\"No JSON-RPC response body\", () => pm.expect(pm.response.text().trim()).to.equal(\"\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 Ping",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream",
+                "type": "text"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "{{protocolVersion}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"ping\",\n  \"params\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}{{mcpPath}}",
+            "description": "Protocol-level connectivity check; not the health status of any monitored target."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "const raw = pm.response.text();",
+                  "const request = JSON.parse(pm.variables.replaceIn(pm.request.body.raw));",
+                  "let message;",
+                  "if (/text\\/event-stream/i.test(contentType)) {",
+                  "    const events = raw.replace(/\\r\\n/g, \"\\n\").split(/\\n\\n/);",
+                  "    for (const event of events) {",
+                  "        const data = event.split(\"\\n\").filter(line => line.startsWith(\"data:\"))",
+                  "            .map(line => line.slice(5).replace(/^ /, \"\")).join(\"\\n\");",
+                  "        if (!data) continue;",
+                  "        let candidate;",
+                  "        try { candidate = JSON.parse(data); } catch (_) { continue; }",
+                  "        if (candidate && candidate.id === request.id) { message = candidate; break; }",
+                  "    }",
+                  "} else if (/application\\/json/i.test(contentType)) {",
+                  "    try { message = JSON.parse(raw); } catch (_) { /* assertion below reports failure */ }",
+                  "}",
+                  "pm.test(\"Matching JSON-RPC success response\", () => {",
+                  "    pm.expect(message, \"Expected a JSON or SSE JSON-RPC reply\").to.be.an(\"object\");",
+                  "    pm.expect(message.jsonrpc).to.equal(\"2.0\");",
+                  "    pm.expect(message.id).to.equal(request.id);",
+                  "    pm.expect(message).not.to.have.property(\"error\");",
+                  "    pm.expect(message).to.have.property(\"result\");",
+                  "});",
+                  "pm.test(\"Ping returns a result object\", () => pm.expect(message.result).to.be.an(\"object\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 List tools",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream",
+                "type": "text"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "{{protocolVersion}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"tools/list\",\n  \"params\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}{{mcpPath}}",
+            "description": "Discover tools and their input schemas. Four monitoring tools are currently expected."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "const raw = pm.response.text();",
+                  "const request = JSON.parse(pm.variables.replaceIn(pm.request.body.raw));",
+                  "let message;",
+                  "if (/text\\/event-stream/i.test(contentType)) {",
+                  "    const events = raw.replace(/\\r\\n/g, \"\\n\").split(/\\n\\n/);",
+                  "    for (const event of events) {",
+                  "        const data = event.split(\"\\n\").filter(line => line.startsWith(\"data:\"))",
+                  "            .map(line => line.slice(5).replace(/^ /, \"\")).join(\"\\n\");",
+                  "        if (!data) continue;",
+                  "        let candidate;",
+                  "        try { candidate = JSON.parse(data); } catch (_) { continue; }",
+                  "        if (candidate && candidate.id === request.id) { message = candidate; break; }",
+                  "    }",
+                  "} else if (/application\\/json/i.test(contentType)) {",
+                  "    try { message = JSON.parse(raw); } catch (_) { /* assertion below reports failure */ }",
+                  "}",
+                  "pm.test(\"Matching JSON-RPC success response\", () => {",
+                  "    pm.expect(message, \"Expected a JSON or SSE JSON-RPC reply\").to.be.an(\"object\");",
+                  "    pm.expect(message.jsonrpc).to.equal(\"2.0\");",
+                  "    pm.expect(message.id).to.equal(request.id);",
+                  "    pm.expect(message).not.to.have.property(\"error\");",
+                  "    pm.expect(message).to.have.property(\"result\");",
+                  "});",
+                  "pm.test(\"All four monitoring tools are advertised\", () => {",
+                  "    const tools = message.result.tools;",
+                  "    pm.expect(tools).to.be.an(\"array\");",
+                  "    for (const name of [\"get_overview\", \"list_targets\", \"get_target_status\", \"get_target_history\"]) {",
+                  "        pm.expect(tools.some(tool => tool.name === name), name).to.equal(true);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 — Monitoring tools",
+      "item": [
+        {
+          "name": "05 Get overview",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream",
+                "type": "text"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "{{protocolVersion}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 4,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_overview\",\n    \"arguments\": {}\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}{{mcpPath}}",
+            "description": "Current cached health of every configured target, including summary counts. Empty targets are valid."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "const raw = pm.response.text();",
+                  "const request = JSON.parse(pm.variables.replaceIn(pm.request.body.raw));",
+                  "let message;",
+                  "if (/text\\/event-stream/i.test(contentType)) {",
+                  "    const events = raw.replace(/\\r\\n/g, \"\\n\").split(/\\n\\n/);",
+                  "    for (const event of events) {",
+                  "        const data = event.split(\"\\n\").filter(line => line.startsWith(\"data:\"))",
+                  "            .map(line => line.slice(5).replace(/^ /, \"\")).join(\"\\n\");",
+                  "        if (!data) continue;",
+                  "        let candidate;",
+                  "        try { candidate = JSON.parse(data); } catch (_) { continue; }",
+                  "        if (candidate && candidate.id === request.id) { message = candidate; break; }",
+                  "    }",
+                  "} else if (/application\\/json/i.test(contentType)) {",
+                  "    try { message = JSON.parse(raw); } catch (_) { /* assertion below reports failure */ }",
+                  "}",
+                  "pm.test(\"Matching JSON-RPC success response\", () => {",
+                  "    pm.expect(message, \"Expected a JSON or SSE JSON-RPC reply\").to.be.an(\"object\");",
+                  "    pm.expect(message.jsonrpc).to.equal(\"2.0\");",
+                  "    pm.expect(message.id).to.equal(request.id);",
+                  "    pm.expect(message).not.to.have.property(\"error\");",
+                  "    pm.expect(message).to.have.property(\"result\");",
+                  "});",
+                  "function readToolData(result) {",
+                  "    if (!result || result.isError === true) throw new Error(\"MCP tool failed\");",
+                  "    const texts = (result.content || []).filter(item => item.type === \"text\");",
+                  "    if (texts.length) return JSON.parse(texts.map(item => item.text).join(\"\"));",
+                  "    if (result.structuredContent !== undefined) return result.structuredContent;",
+                  "    throw new Error(\"Missing tool payload\");",
+                  "}",
+                  "pm.test(\"Valid get_overview payload\", () => {",
+                  "    const data = readToolData(message && message.result);",
+                  "    pm.expect(data).to.be.an(\"object\");",
+                  "    pm.expect(data.targets).to.be.an(\"array\");",
+                  "    pm.expect(data.summary.total).to.equal(data.targets.length);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 List targets",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream",
+                "type": "text"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "{{protocolVersion}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 5,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"list_targets\",\n    \"arguments\": {}\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}{{mcpPath}}",
+            "description": "Find exact IDs for configured targets. Copy an ID from the response (inside the tool text JSON) into your private local targetId variable. No targets are valid if nothing is configured."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "const raw = pm.response.text();",
+                  "const request = JSON.parse(pm.variables.replaceIn(pm.request.body.raw));",
+                  "let message;",
+                  "if (/text\\/event-stream/i.test(contentType)) {",
+                  "    const events = raw.replace(/\\r\\n/g, \"\\n\").split(/\\n\\n/);",
+                  "    for (const event of events) {",
+                  "        const data = event.split(\"\\n\").filter(line => line.startsWith(\"data:\"))",
+                  "            .map(line => line.slice(5).replace(/^ /, \"\")).join(\"\\n\");",
+                  "        if (!data) continue;",
+                  "        let candidate;",
+                  "        try { candidate = JSON.parse(data); } catch (_) { continue; }",
+                  "        if (candidate && candidate.id === request.id) { message = candidate; break; }",
+                  "    }",
+                  "} else if (/application\\/json/i.test(contentType)) {",
+                  "    try { message = JSON.parse(raw); } catch (_) { /* assertion below reports failure */ }",
+                  "}",
+                  "pm.test(\"Matching JSON-RPC success response\", () => {",
+                  "    pm.expect(message, \"Expected a JSON or SSE JSON-RPC reply\").to.be.an(\"object\");",
+                  "    pm.expect(message.jsonrpc).to.equal(\"2.0\");",
+                  "    pm.expect(message.id).to.equal(request.id);",
+                  "    pm.expect(message).not.to.have.property(\"error\");",
+                  "    pm.expect(message).to.have.property(\"result\");",
+                  "});",
+                  "function readToolData(result) {",
+                  "    if (!result || result.isError === true) throw new Error(\"MCP tool failed\");",
+                  "    const texts = (result.content || []).filter(item => item.type === \"text\");",
+                  "    if (texts.length) return JSON.parse(texts.map(item => item.text).join(\"\"));",
+                  "    if (result.structuredContent !== undefined) return result.structuredContent;",
+                  "    throw new Error(\"Missing tool payload\");",
+                  "}",
+                  "pm.test(\"Valid list_targets payload\", () => {",
+                  "    const data = readToolData(message && message.result);",
+                  "    pm.expect(data).to.be.an(\"array\");",
+                  "    for (const target of data) {",
+                  "        for (const key of [\"id\", \"name\", \"environment\", \"group\", \"kind\"]) pm.expect(target[key]).to.be.a(\"string\");",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 Get target status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream",
+                "type": "text"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "{{protocolVersion}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 6,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_target_status\",\n    \"arguments\": {\n      \"targetId\": {{targetIdJson}}\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}{{mcpPath}}",
+            "description": "Requires a configured targetId from List targets. Unknown target IDs return an application-level error inside the tool result."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const targetId = pm.variables.get(\"targetId\");",
+                  "if (typeof targetId !== \"string\" || !targetId.trim()) {",
+                  "    throw new Error(\"Set targetId locally using a configured ID from List targets before sending this request.\");",
+                  "}",
+                  "pm.variables.set(\"targetIdJson\", JSON.stringify(targetId));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "const raw = pm.response.text();",
+                  "const request = JSON.parse(pm.variables.replaceIn(pm.request.body.raw));",
+                  "let message;",
+                  "if (/text\\/event-stream/i.test(contentType)) {",
+                  "    const events = raw.replace(/\\r\\n/g, \"\\n\").split(/\\n\\n/);",
+                  "    for (const event of events) {",
+                  "        const data = event.split(\"\\n\").filter(line => line.startsWith(\"data:\"))",
+                  "            .map(line => line.slice(5).replace(/^ /, \"\")).join(\"\\n\");",
+                  "        if (!data) continue;",
+                  "        let candidate;",
+                  "        try { candidate = JSON.parse(data); } catch (_) { continue; }",
+                  "        if (candidate && candidate.id === request.id) { message = candidate; break; }",
+                  "    }",
+                  "} else if (/application\\/json/i.test(contentType)) {",
+                  "    try { message = JSON.parse(raw); } catch (_) { /* assertion below reports failure */ }",
+                  "}",
+                  "pm.test(\"Matching JSON-RPC success response\", () => {",
+                  "    pm.expect(message, \"Expected a JSON or SSE JSON-RPC reply\").to.be.an(\"object\");",
+                  "    pm.expect(message.jsonrpc).to.equal(\"2.0\");",
+                  "    pm.expect(message.id).to.equal(request.id);",
+                  "    pm.expect(message).not.to.have.property(\"error\");",
+                  "    pm.expect(message).to.have.property(\"result\");",
+                  "});",
+                  "function readToolData(result) {",
+                  "    if (!result || result.isError === true) throw new Error(\"MCP tool failed\");",
+                  "    const texts = (result.content || []).filter(item => item.type === \"text\");",
+                  "    if (texts.length) return JSON.parse(texts.map(item => item.text).join(\"\"));",
+                  "    if (result.structuredContent !== undefined) return result.structuredContent;",
+                  "    throw new Error(\"Missing tool payload\");",
+                  "}",
+                  "pm.test(\"Valid get_target_status payload\", () => {",
+                  "    const data = readToolData(message && message.result);",
+                  "    pm.expect(data).to.be.an(\"object\");",
+                  "    pm.expect(data).not.to.have.property(\"error\");",
+                  "    pm.expect(data.id).to.equal(request.params.arguments.targetId);",
+                  "    pm.expect(data.status).to.be.oneOf([\"Healthy\", \"Degraded\", \"Down\", \"Unknown\"]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 Get target history",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream",
+                "type": "text"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "{{protocolVersion}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 7,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_target_history\",\n    \"arguments\": {\n      \"targetId\": {{targetIdJson}},\n      \"limit\": {{historyLimitJson}}\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}{{mcpPath}}",
+            "description": "Requires targetId; historyLimit defaults to 50 (1–200). Empty history is valid before the first recorded check."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const targetId = pm.variables.get(\"targetId\");",
+                  "if (typeof targetId !== \"string\" || !targetId.trim()) {",
+                  "    throw new Error(\"Set targetId locally using a configured ID from List targets before sending this request.\");",
+                  "}",
+                  "pm.variables.set(\"targetIdJson\", JSON.stringify(targetId));",
+                  "const limit = Number(pm.variables.get(\"historyLimit\"));",
+                  "if (!Number.isInteger(limit) || limit < 1 || limit > 200) {",
+                  "    throw new Error(\"historyLimit must be an integer between 1 and 200.\");",
+                  "}",
+                  "pm.variables.set(\"historyLimitJson\", String(limit));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const contentType = pm.response.headers.get(\"Content-Type\") || \"\";",
+                  "const raw = pm.response.text();",
+                  "const request = JSON.parse(pm.variables.replaceIn(pm.request.body.raw));",
+                  "let message;",
+                  "if (/text\\/event-stream/i.test(contentType)) {",
+                  "    const events = raw.replace(/\\r\\n/g, \"\\n\").split(/\\n\\n/);",
+                  "    for (const event of events) {",
+                  "        const data = event.split(\"\\n\").filter(line => line.startsWith(\"data:\"))",
+                  "            .map(line => line.slice(5).replace(/^ /, \"\")).join(\"\\n\");",
+                  "        if (!data) continue;",
+                  "        let candidate;",
+                  "        try { candidate = JSON.parse(data); } catch (_) { continue; }",
+                  "        if (candidate && candidate.id === request.id) { message = candidate; break; }",
+                  "    }",
+                  "} else if (/application\\/json/i.test(contentType)) {",
+                  "    try { message = JSON.parse(raw); } catch (_) { /* assertion below reports failure */ }",
+                  "}",
+                  "pm.test(\"Matching JSON-RPC success response\", () => {",
+                  "    pm.expect(message, \"Expected a JSON or SSE JSON-RPC reply\").to.be.an(\"object\");",
+                  "    pm.expect(message.jsonrpc).to.equal(\"2.0\");",
+                  "    pm.expect(message.id).to.equal(request.id);",
+                  "    pm.expect(message).not.to.have.property(\"error\");",
+                  "    pm.expect(message).to.have.property(\"result\");",
+                  "});",
+                  "function readToolData(result) {",
+                  "    if (!result || result.isError === true) throw new Error(\"MCP tool failed\");",
+                  "    const texts = (result.content || []).filter(item => item.type === \"text\");",
+                  "    if (texts.length) return JSON.parse(texts.map(item => item.text).join(\"\"));",
+                  "    if (result.structuredContent !== undefined) return result.structuredContent;",
+                  "    throw new Error(\"Missing tool payload\");",
+                  "}",
+                  "pm.test(\"Valid get_target_history payload\", () => {",
+                  "    const data = readToolData(message && message.result);",
+                  "    pm.expect(data).to.be.an(\"array\");",
+                  "    pm.expect(data.length).to.be.at.most(request.params.arguments.limit);",
+                  "    for (const row of data) pm.expect(row.status).to.be.oneOf([\"Healthy\", \"Degraded\", \"Down\", \"Unknown\"]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 — Authentication checks",
+      "item": [
+        {
+          "name": "09 Missing token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream",
+                "type": "text"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "{{protocolVersion}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 8,\n  \"method\": \"ping\",\n  \"params\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}{{mcpPath}}",
+            "description": "Explicitly disables inherited collection authentication. With MCP enabled, expect 401; when disabled the route returns 404 instead.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"MCP rejects unauthorized request (401)\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"Bearer authentication challenge\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"WWW-Authenticate\") || \"\").to.match(/^Bearer(?:\\s|$)/i);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10 Invalid token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream",
+                "type": "text"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "{{protocolVersion}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer intentionally-invalid-example-token",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 9,\n  \"method\": \"ping\",\n  \"params\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}{{mcpPath}}",
+            "description": "Uses a fixed intentionally invalid token, not the configured secret. With MCP enabled, expect 401.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"MCP rejects unauthorized request (401)\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"Bearer authentication challenge\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"WWW-Authenticate\") || \"\").to.match(/^Bearer(?:\\s|$)/i);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
