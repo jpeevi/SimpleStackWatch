@@ -1,4 +1,5 @@
 import { number, bytes, date, parseCsv } from './format.js';
+import { statusClass, summarizeTargets, endpointRows } from './overview.js';
 
 const root = document.querySelector('#dashboard');
 const tab = root.dataset.tab;
@@ -15,6 +16,9 @@ let processRows = [];
 let refreshing = false;
 let sampling = false;
 let monitorSampling = false;
+let overviewRows = [];
+let historyRequest = 0;
+let endpointSort = { sort: 'status', direction: 'asc' };
 
 function text(tag, value, className = '') {
   const element = document.createElement(tag);
@@ -24,6 +28,10 @@ function text(tag, value, className = '') {
 }
 
 function table(target, headers, rows, cellFactory) {
+  // Preserve keyboard focus on a sorting control across refreshes and re-sorts.
+  const focusedSort = document.activeElement?.dataset?.sortKey;
+  const endpointTable = tab === 'endpoints' && target === content;
+  const previousScroll = endpointTable ? target.querySelector?.('.table-responsive')?.scrollLeft ?? 0 : 0;
   target.replaceChildren();
 
   if (!rows.length) {
@@ -37,6 +45,9 @@ function table(target, headers, rows, cellFactory) {
 
   const wrapper = document.createElement('div');
   wrapper.className = 'table-responsive';
+  wrapper.tabIndex = 0;
+  wrapper.role = 'region';
+  wrapper.ariaLabel = 'Scrollable data table';
 
   const grid = document.createElement('table');
   grid.className = 'table table-hover';
@@ -44,9 +55,25 @@ function table(target, headers, rows, cellFactory) {
   const head = document.createElement('thead');
   const header = document.createElement('tr');
 
+  let restoreFocus = null;
   headers.forEach(label => {
-    const th = text('th', label);
+    const th = text('th', typeof label === 'string' ? label : '');
     th.scope = 'col';
+    if (typeof label !== 'string') {
+      const active = endpointSort.sort === label.key;
+      if (active) th.setAttribute('aria-sort', endpointSort.direction === 'asc' ? 'ascending' : 'descending');
+      const indicator = active ? (endpointSort.direction === 'asc' ? ' ↑' : ' ↓') : ' ↕';
+      const button = text('button', label.title + indicator, 'endpoint-sort');
+      button.type = 'button';
+      button.dataset.sortKey = label.key;
+      button.setAttribute('aria-label', `Sort by ${label.title}`);
+      button.addEventListener('click', () => {
+        endpointSort = { sort: label.key, direction: active && endpointSort.direction === 'asc' ? 'desc' : 'asc' };
+        renderOverviewRows();
+      });
+      if (focusedSort === label.key) restoreFocus = button;
+      th.append(button);
+    }
     header.append(th);
   });
 
@@ -76,6 +103,8 @@ function table(target, headers, rows, cellFactory) {
   grid.append(body);
   wrapper.append(grid);
   target.append(wrapper);
+  if (endpointTable) wrapper.scrollLeft = previousScroll;
+  restoreFocus?.focus({ preventScroll: true });
 }
 
 async function request(path, method = 'GET') {
@@ -342,6 +371,119 @@ async function sampleMonitorMetrics() {
   }
 }
 
+
+function statusBadge(status) {
+  return text('span', status || 'Unknown', statusClass(status));
+}
+
+function renderOverview(data) {
+  const selector = document.querySelector('#overview-environment');
+  const selected = selector.value;
+  overviewRows = (data.targets || []).filter(t => tab !== 'endpoints' || t.kind === 'http');
+  const environments = [...new Set(overviewRows.map(t => t.environment))].sort();
+  selector.replaceChildren();
+  const all = text('option', 'All environments');
+  all.value = '';
+  selector.append(all);
+  for (const environment of environments) {
+    const option = text('option', environment);
+    option.value = environment;
+    selector.append(option);
+  }
+  selector.value = environments.includes(selected) ? selected : '';
+  renderOverviewRows();
+}
+
+function renderOverviewRows() {
+  const selector = document.querySelector('#overview-environment');
+  const search = (document.querySelector('#overview-search')?.value || '').trim().toLocaleLowerCase();
+  const status = document.querySelector('#endpoint-status')?.value || '';
+  const rows = tab === 'endpoints'
+      ? endpointRows(overviewRows, { environment: selector.value, status, search, ...endpointSort })
+      : overviewRows
+      .filter(t => !selector.value || t.environment === selector.value)
+      .filter(t => !search || [t.name, t.group, t.kind, t.environment, t.detail]
+          .some(value => String(value ?? '').toLocaleLowerCase().includes(search)))
+      .sort((a, b) => (a.environment + a.group + a.name)
+          .localeCompare(b.environment + b.group + b.name));
+  const totals = summarizeTargets(rows);
+  const summary = document.querySelector('#overview-summary');
+  summary.replaceChildren();
+  for (const [name, value] of Object.entries(totals)) {
+    const outer = document.createElement('div');
+    outer.className = 'col-6 col-md-4 col-xl';
+    const card = document.createElement('div');
+    card.className = 'card summary-card h-100';
+    const body = document.createElement('div');
+    body.className = 'card-body';
+    body.append(text('div', name[0].toUpperCase() + name.slice(1), 'summary-label'));
+    body.append(text('div', value, 'summary-value'));
+    card.append(body);
+    outer.append(card);
+    summary.append(outer);
+  }
+
+  if (!rows.length) {
+    const empty = tab === 'endpoints'
+        ? (overviewRows.length ? 'No endpoints match your filters.' : 'No HTTP endpoints configured. Add Dashboard:Monitoring:Endpoints on the server.')
+        : (search ? 'No targets match your search.' : 'No monitoring targets configured for this environment. Add Dashboard:Monitoring:Endpoints or enable infrastructure checks.');
+    message(content, empty);
+    return;
+  }
+
+  if (tab === 'endpoints') {
+    table(content, [
+      { title: 'Name', key: 'name' }, 'Environment', 'Group',
+      { title: 'Status', key: 'status' }, { title: 'Latency', key: 'durationMs' },
+      { title: 'Last checked', key: 'checkedAt' }, 'Details', 'History'
+    ], rows, target => {
+      const button = text('button', 'History', 'btn btn-sm btn-outline-secondary');
+      button.type = 'button';
+      button.setAttribute('aria-label', `History for ${target.name}`);
+      button.addEventListener('click', () => showOverviewHistory(target));
+      return [target.name, target.environment, target.group, statusBadge(target.status),
+        target.durationMs == null ? '—' : `${number(target.durationMs)} ms`,
+        date(target.checkedAt), target.detail, button];
+    });
+    return;
+  }
+
+  table(content,
+      ['Environment', 'Group', 'Target', 'Type', 'Status', 'Last checked', 'Latency', 'Details', 'History'],
+      rows,
+      target => {
+        const button = text('button', 'History', 'btn btn-sm btn-outline-secondary');
+        button.type = 'button';
+        button.addEventListener('click', () => showOverviewHistory(target));
+        return [target.environment, target.group, target.name, target.kind,
+          statusBadge(target.status), date(target.checkedAt),
+          target.durationMs == null ? '—' : `${number(target.durationMs)} ms`,
+          target.detail, button];
+      });
+}
+
+async function showOverviewHistory(target) {
+  const current = ++historyRequest;
+  const section = document.querySelector('#overview-history-section');
+  const title = document.querySelector('#overview-history-title');
+  const history = document.querySelector('#overview-history');
+  section.hidden = false;
+  section.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  title.textContent = `${target.name} · Recent checks`;
+  message(history, 'Loading history…');
+  try {
+    const records = await request(`/api/overview/history?targetId=${encodeURIComponent(target.id)}&limit=50`);
+    if (current !== historyRequest) return;
+    table(history, ['Checked', 'Status', 'Latency', 'Details'], records, record => [
+      date(record.checkedAt), statusBadge(record.status),
+      record.durationMs == null ? '—' : `${number(record.durationMs)} ms`,
+      record.detail
+    ]);
+  } catch (e) {
+    if (current === historyRequest) message(history, e.message);
+  }
+}
+
 async function refresh() {
   // Avoid changing applications or fetching lists during a live sample.
   if (tab === 'processes' && monitorSampling) return;
@@ -380,9 +522,11 @@ async function refresh() {
       return;
     }
 
-    const data = await request(`/api/${tab}${query}`);
+    const data = await request(`/api/${tab === 'endpoints' ? 'overview' : tab}${query}`);
 
-    if (data.configured === false) {
+    if (tab === 'overview' || tab === 'endpoints') {
+      renderOverview(data);
+    } else if (data.configured === false) {
       message(
           content,
           'This service is not configured. Set its connection details on the server.'
@@ -498,11 +642,11 @@ async function refresh() {
           ? `${health.status} · ${number(health.durationMs)} ms`
           : '';
 
-      badge.className =
-          `badge ${health.status === 'Healthy' ? 'text-bg-success' : 'text-bg-danger'}`;
+      badge.className = `badge ${statusClass(health.status)}`;
     } catch {
-      document.querySelector('#health-status').textContent =
-          'Health unavailable';
+      const badge = document.querySelector('#health-status');
+      badge.textContent = 'Health unavailable';
+      badge.className = `badge ${statusClass('Unknown')}`;
     }
   }
 
@@ -549,6 +693,16 @@ async function sample(pid) {
     sampling = false;
     populateCounterProcesses();
   }
+}
+
+if (tab === 'overview' || tab === 'endpoints') {
+  document.querySelector('#endpoint-status')?.addEventListener('change', renderOverviewRows);
+  document.querySelector('#overview-environment').addEventListener('change', renderOverviewRows);
+  document.querySelector('#overview-search')?.addEventListener('input', renderOverviewRows);
+  document.querySelector('#overview-history-close').addEventListener('click', () => {
+    historyRequest++;
+    document.querySelector('#overview-history-section').hidden = true;
+  });
 }
 
 if (tab === 'processes') {

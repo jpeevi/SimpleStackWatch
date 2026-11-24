@@ -16,18 +16,19 @@
     const button = document.querySelector('#theme-toggle');
     if (button) {
       button.hidden = false;
-      button.textContent = 'Dark mode';
+      button.textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
+      button.setAttribute('aria-label', `Use ${theme === 'dark' ? 'light' : 'dark'} mode`);
       button.setAttribute('aria-pressed', String(theme === 'dark'));
     }
   };
 
-  // Apply before styles load to avoid flashing the wrong theme.
+  // Set the theme before the CSS loads to avoid flashing the wrong theme.
   apply();
   document.addEventListener('DOMContentLoaded', () => {
     apply();
     document.querySelector('#theme-toggle')?.addEventListener('click', () => {
       preference = root.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
-      try { localStorage.setItem(key, preference); } catch { /* Keep the preference for this page. */ }
+      try { localStorage.setItem(key, preference); } catch { /* Keep preference for this page. */ }
       apply();
     });
   });

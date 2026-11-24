@@ -2,37 +2,75 @@
 @{
     ViewData["Title"] = Model.Tab switch
     {
+        "overview" => "Overview",
+        "endpoints" => "Endpoints",
         "processes" => ".NET monitoring",
         "postgres" => "PostgreSQL",
         "redis" => "Redis",
         "ec2" => "EC2",
         _ => "Logs"
     };
+    var endpointsOnly = Model.Tab == "endpoints";
 }
 
 <div id="dashboard" data-tab="@Model.Tab" data-refresh="@Model.RefreshSeconds">
-    <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
-        <h1 class="h4 mb-0">@ViewData["Title"]</h1>
+    <div class="dashboard-toolbar">
+        <h1>@ViewData["Title"]</h1>
 
         @if (Model.Tab != "logs")
         {
-            <span id="health-status" class="badge text-bg-secondary"></span>
-            <span id="updated"
-                  class="small text-secondary ms-auto"
-                  aria-live="polite"></span>
-
-            <label class="small d-flex align-items-center gap-2">
-                <input id="auto-refresh" type="checkbox" checked>
-                Auto refresh
-            </label>
-
-            <button id="refresh"
-                    type="button"
-                    class="btn btn-sm btn-outline-primary">
-                Refresh
-            </button>
+            <div class="dashboard-actions">
+                <span id="health-status" class="badge" role="status"></span>
+                <span id="updated" class="text-secondary" aria-live="polite"></span>
+                <label class="refresh-switch d-flex align-items-center gap-2">
+                    <input id="auto-refresh" class="form-check-input m-0" type="checkbox" checked>
+                    Auto refresh
+                </label>
+                <button id="refresh" type="button" class="btn btn-sm btn-outline-secondary">Refresh now</button>
+            </div>
         }
     </div>
+
+    @if (Model.Tab is "overview" or "endpoints")
+    {
+        <div id="overview-summary" class="row g-3 mb-3" role="group" aria-label="@(endpointsOnly ? "Endpoint status" : "Current monitoring status")">
+            <div class="col-12 text-secondary small">@(endpointsOnly ? "Loading endpoints…" : "Loading monitored targets…")</div>
+        </div>
+        <div class="card mb-3">
+            <div class="card-body border-bottom d-flex flex-wrap align-items-center gap-2">
+                <h2 class="h6 mb-0">@(endpointsOnly ? "HTTP/HTTPS endpoints" : "Monitored targets")</h2>
+                <div class="overview-controls @(endpointsOnly ? "endpoint-controls" : "")">
+                    <input id="overview-search" class="form-control form-control-sm overview-search"
+                           type="search" aria-label="@(endpointsOnly ? "Search endpoints" : "Search monitored targets")" placeholder="@(endpointsOnly ? "Search endpoints" : "Search targets")">
+                    <label for="overview-environment" class="small">Environment</label>
+                    <select id="overview-environment" class="form-select form-select-sm w-auto">
+                        <option value="">All environments</option>
+                    </select>
+                    @if (endpointsOnly)
+                    {
+                        <label for="endpoint-status" class="small">Status</label>
+                        <select id="endpoint-status" class="form-select form-select-sm w-auto">
+                            <option value="">All statuses</option>
+                            <option value="Down">Down</option>
+                            <option value="Degraded">Degraded</option>
+                            <option value="Unknown">Unknown</option>
+                            <option value="Healthy">Healthy</option>
+                        </select>
+                    }
+                </div>
+            </div>
+            <p class="table-hint text-secondary small">Scroll the table sideways to see details and history.</p>
+            <div id="content" class="text-secondary card-body" role="region" aria-label="@(endpointsOnly ? "Endpoints table" : "Monitored targets table")">Loading…</div>
+        </div>
+        <section id="overview-history-section" class="card" aria-label="Check history" hidden>
+            <div class="card-body border-bottom d-flex align-items-center gap-2">
+                <h2 id="overview-history-title" class="h6 mb-0">Check history</h2>
+                <button type="button" id="overview-history-close"
+                        class="btn btn-sm btn-outline-secondary ms-auto">Close</button>
+            </div>
+            <div id="overview-history" class="card-body text-secondary">Loading…</div>
+        </section>
+    }
 
     @if (Model.Tab == "postgres")
     {
@@ -64,7 +102,7 @@
 
                 <button id="file-logs"
                         type="button"
-                        class="btn btn-sm btn-outline-primary log-source"
+                        class="btn btn-sm btn-outline-secondary log-source"
                         data-src="@Model.LogFolders[0].Url">
                     File logs
                 </button>
@@ -73,7 +111,7 @@
             @if (Model.DatabaseLogs)
             {
                 <button type="button"
-                        class="btn btn-sm btn-outline-primary log-source"
+                        class="btn btn-sm btn-outline-secondary log-source"
                         data-src="/integrations/database-logs/">
                     Database logs
                 </button>
@@ -97,7 +135,7 @@
     }
     else if (Model.Tab == "processes")
     {
-        <div class="card border-0 shadow-sm mb-3">
+        <div class="card mb-3">
             <div class="card-body d-flex flex-wrap align-items-center gap-3">
                 <label for="process-view" class="small mb-0">View</label>
 
@@ -121,7 +159,7 @@
         </div>
 
         <section id="process-panel" aria-label="Processes">
-            <div id="content" class="card border-0 shadow-sm">
+            <div id="content" class="card">
                 <div class="card-body text-secondary">Loading…</div>
             </div>
 
@@ -132,7 +170,7 @@
         </section>
 
         <section id="counter-panel" aria-label="Runtime counters" hidden>
-            <div class="card border-0 shadow-sm mb-3">
+            <div class="card mb-3">
                 <div class="card-body">
                     <div class="d-flex flex-wrap align-items-center gap-3">
                         <label for="counter-process" class="small mb-0">
@@ -147,7 +185,7 @@
 
                         <button id="counter-sample"
                                 type="button"
-                                class="btn btn-sm btn-outline-primary"
+                                class="btn btn-sm btn-outline-secondary"
                                 disabled>
                             Sample counters
                         </button>
@@ -160,7 +198,7 @@
                 </div>
             </div>
 
-            <div id="counter-content" class="card border-0 shadow-sm">
+            <div id="counter-content" class="card">
                 <div class="card-body text-secondary small">
                     Select an application, then choose Sample counters.
                 </div>
@@ -170,7 +208,7 @@
         @if (Model.MonitorEnabled)
         {
             <section id="monitor-panel" aria-label="dotnet-monitor" hidden>
-                <div class="card border-0 shadow-sm mb-3">
+                <div class="card mb-3">
                     <div class="card-body">
                         <div class="d-flex flex-wrap align-items-center gap-3">
                             <label for="monitor-endpoint" class="small mb-0">
@@ -198,7 +236,7 @@
 
                                 <button id="monitor-sample"
                                         type="button"
-                                        class="btn btn-sm btn-outline-primary"
+                                        class="btn btn-sm btn-outline-secondary"
                                         disabled>
                                     Sample metrics
                                 </button>
@@ -212,7 +250,7 @@
                     </div>
                 </div>
 
-                <div id="monitor-content" class="card border-0 shadow-sm">
+                <div id="monitor-content" class="card">
                     <div class="card-body text-secondary">
                         Select this view to load dotnet-monitor data.
                     </div>
@@ -220,9 +258,9 @@
             </section>
         }
     }
-    else
+    else if (Model.Tab is not ("overview" or "endpoints"))
     {
-        <div id="content" class="card border-0 shadow-sm">
+        <div id="content" class="card">
             <div class="card-body text-secondary">Loading…</div>
         </div>
     }

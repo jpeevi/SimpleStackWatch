@@ -14,9 +14,6 @@ users.db-*
 .serilog-viewer/
 logs/
 *.log
-.env
-.env.*
-!.env.example
 systemd.env
 *.pfx
 *.p12
@@ -26,3 +23,19 @@ node_modules/
 SimpleStackWatch.Dashboard/Properties
 SimpleStackWatchDashboard.Test/testconfig.json
 SimpleStackWatch.Dashboard/data
+# Keep operator-specific configuration and deployment credentials out of Git.
+# The committed Uat file is generic: monitoring toggles only.
+**/appsettings.*.json
+!SimpleStackWatch.Dashboard/appsettings.Uat.json
+**/.env
+**/.env.*
+!.env.example
+**/systemd.env
+**/*.secrets
+**/*.secrets.*
+**/*.credentials
+**/*.credentials.*
+**/*.key
+**/*.pem
+**/*.pfx
+**/*.p12

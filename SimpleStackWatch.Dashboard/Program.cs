@@ -14,7 +14,10 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
+using ModelContextProtocol.AspNetCore;
+
 using MonitorDashboard.Auth;
+using MonitorDashboard.Mcp;
 using MonitorDashboard.Models;
 using MonitorDashboard.Services;
 
@@ -59,13 +62,18 @@ if (!cli && args.Length > 0)
 var configuration = builder.Configuration;
 var environment = builder.Environment;
 
+// Hostname allowlisting is deployment-specific. Never take production hostnames
+// from a public appsettings file; localhost is the safe default for development.
+configuration["AllowedHosts"] = Environment.GetEnvironmentVariable("AllowedHosts") ?? "localhost;127.0.0.1";
+
 // ============================================================
 // Logging
 // ============================================================
 
 builder.Logging.ClearProviders();
 
-var configuredLogPath = configuration["LogSettings:FilePath"] ?? "logs/app-.log";
+// Local filesystem paths are operator-specific, not public JSON configuration.
+var configuredLogPath = Environment.GetEnvironmentVariable("LogSettings__FilePath") ?? "logs/app-.log";
 if (string.IsNullOrWhiteSpace(configuredLogPath))
     throw new InvalidOperationException("LogSettings:FilePath must contain a log file path.");
 var logPath = Path.IsPathRooted(configuredLogPath)
@@ -112,7 +120,22 @@ try
         .GetSection("Dashboard")
         .Get<DashboardOptions>() ?? new();
 
+    // Public JSON contains only generic defaults. Private infrastructure settings
+    // are rebound from the process environment, never from JSON or CLI arguments.
+    var privateEnvironment = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+    PrivateDashboardConfiguration.Apply(options, privateEnvironment);
+
     PostgresService.Configure(options.Postgres);
+    MonitoringService.Configure(options.Monitoring);
+
+    // MCP is opt-in and accepts a bearer token only from the process environment.
+    // Fail startup when the endpoint is enabled but not safely configured.
+    var mcpTokenHash = !cli && options.Mcp.Enabled
+        ? McpBearerAuthentication.HashConfiguredToken(
+            Environment.GetEnvironmentVariable("Dashboard__Mcp__BearerToken"))
+        : null;
+    // Validate all configured monitoring targets before accepting requests.
+    if (!cli) MonitoringService.BuildTargets(options);
 
     options.DataDirectory = Path.GetFullPath(
         options.DataDirectory,
@@ -392,12 +415,36 @@ try
         builder.Services.AddSingleton<RedisService>();
         builder.Services.AddSingleton<AwsService>();
         builder.Services.AddSingleton<MonitorService>();
+        builder.Services.AddSingleton<MonitoringStore>();
+        builder.Services.AddSingleton<MonitoringService>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<MonitoringService>());
+
+        builder.Services.AddHttpClient("health-targets", client =>
+            client.Timeout = Timeout.InfiniteTimeSpan)
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
+        builder.Services.AddHttpClient("monitoring-alerts", client =>
+            client.Timeout = TimeSpan.FromSeconds(6))
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
 
         builder.Services
             .AddHttpClient("monitor", client =>
                 client.Timeout = TimeSpan.FromSeconds(15))
             .ConfigurePrimaryHttpMessageHandler(() =>
                 new HttpClientHandler { AllowAutoRedirect = false });
+    }
+
+
+    // ============================================================
+    // Read-only Model Context Protocol endpoint
+    // ============================================================
+
+    if (!cli && options.Mcp.Enabled)
+    {
+        builder.Services.AddMcpServer()
+            .WithHttpTransport(transport => transport.Stateless = true)
+            .WithTools<MonitoringTools>();
     }
 
 
@@ -412,6 +459,11 @@ try
         await scope.ServiceProvider
             .GetRequiredService<AuthDbContext>()
             .Database.EnsureCreatedAsync();
+    }
+
+    if (!cli)
+    {
+        await app.Services.GetRequiredService<MonitoringStore>().InitializeAsync();
     }
 
     if (OperatingSystem.IsLinux())
@@ -501,6 +553,28 @@ try
     app.Use(async (context, next) =>
     {
         var path = context.Request.Path;
+
+        // MCP is intentionally separate from browser cookie authentication.
+        // A logged-in user still needs a valid bearer token to access these tools.
+        if (path.StartsWithSegments("/api/mcp"))
+        {
+            if (mcpTokenHash is null)
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
+
+            if (!McpBearerAuthentication.Matches(
+                    context.Request.Headers.Authorization.ToString(), mcpTokenHash))
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                context.Response.Headers.WWWAuthenticate = "Bearer";
+                return;
+            }
+
+            await next(context);
+            return;
+        }
 
         if (path == healthPath)
         {
@@ -632,6 +706,13 @@ try
     }).RequireAuthorization();
 
     app.MapControllers();
+
+    if (options.Mcp.Enabled)
+    {
+        // The bearer gate above protects this route. AllowAnonymous only
+        // bypasses the dashboard's cookie-based fallback policy.
+        app.MapMcp("/api/mcp").AllowAnonymous();
+    }
 
 
     // ============================================================

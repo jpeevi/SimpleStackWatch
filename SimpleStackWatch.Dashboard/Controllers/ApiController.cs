@@ -13,9 +13,23 @@ public sealed class ApiController(
     RedisService redis,
     AwsService aws,
     MonitorService monitor,
+    MonitoringService overview,
+    MonitoringStore monitoringStore,
     HealthCheckService health,
     ILogger<ApiController> logger) : ControllerBase
 {
+    [HttpGet("overview")]
+    public Task<IActionResult> Overview(CancellationToken ct) =>
+        Read(() => overview.OverviewAsync(ct));
+
+    [HttpGet("overview/history")]
+    public Task<IActionResult> OverviewHistory([FromQuery] string targetId, [FromQuery] int limit, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(targetId) || !overview.HasTarget(targetId))
+            return Task.FromResult<IActionResult>(BadRequest(new { detail = "Select a configured monitoring target." }));
+        return Read(() => monitoringStore.ReadHistoryAsync(targetId, limit == 0 ? 50 : limit, ct));
+    }
+
     [HttpGet("processes")]
     public Task<IActionResult> Processes(CancellationToken ct)
     {

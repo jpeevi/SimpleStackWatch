@@ -15,14 +15,12 @@ public sealed class DashboardFixture : IDisposable
 {
     public readonly string DataPath = Path.Combine(Path.GetTempPath(), "dashboard-tests-" + Guid.NewGuid().ToString("N"));
     public WebApplicationFactory<Program> Factory { get; }
-    private readonly string? oldData = Environment.GetEnvironmentVariable("Dashboard__DataDirectory");
-    private readonly string? oldLogs = Environment.GetEnvironmentVariable("Dashboard__Logs__EnableFileViewer");
-    private readonly string? oldLimit = Environment.GetEnvironmentVariable("Dashboard__LoginRequestsPerMinute");
+    private readonly TestEnvironment testEnvironment = TestEnvironment.Load();
     public DashboardFixture()
     {
-        Environment.SetEnvironmentVariable("Dashboard__DataDirectory", DataPath);
-        Environment.SetEnvironmentVariable("Dashboard__Logs__EnableFileViewer", "false");
-        Environment.SetEnvironmentVariable("Dashboard__LoginRequestsPerMinute", "200");
+        testEnvironment.Set("Dashboard__DataDirectory", DataPath);
+        testEnvironment.Set("Dashboard__Logs__EnableFileViewer", "false");
+        testEnvironment.Set("Dashboard__LoginRequestsPerMinute", "200");
         Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             // TestServer has no TCP listener for the health UI's internal HTTP poller.
@@ -48,9 +46,7 @@ public sealed class DashboardFixture : IDisposable
     public void Dispose()
     {
         Factory.Dispose();
-        Environment.SetEnvironmentVariable("Dashboard__DataDirectory", oldData);
-        Environment.SetEnvironmentVariable("Dashboard__Logs__EnableFileViewer", oldLogs);
-        Environment.SetEnvironmentVariable("Dashboard__LoginRequestsPerMinute", oldLimit);
+        testEnvironment.Dispose();
         SqliteConnection.ClearAllPools();
         if (Directory.Exists(DataPath)) Directory.Delete(DataPath, true);
     }
@@ -63,6 +59,8 @@ public sealed class AuthTests(DashboardFixture fixture) : IClassFixture<Dashboar
     [InlineData("/api/postgres")]
     [InlineData("/api/redis")]
     [InlineData("/api/ec2")]
+    [InlineData("/api/overview")]
+    [InlineData("/api/overview/history?targetId=example")]
     public async Task AnonymousApisAreProtected(string path)
     {
         using var client = fixture.Client();
@@ -70,6 +68,7 @@ public sealed class AuthTests(DashboardFixture fixture) : IClassFixture<Dashboar
     }
     [Theory]
     [InlineData("/")]
+    [InlineData("/dashboard/endpoints")]
     [InlineData("/integrations/file-logs/api/files")]
     [InlineData("/integrations/file-logs/nginx/")]
     [InlineData("/integrations/file-logs/my-app/api/files")]
@@ -99,14 +98,14 @@ public sealed class AuthTests(DashboardFixture fixture) : IClassFixture<Dashboar
             _ => Task.CompletedTask, logs, Microsoft.Extensions.Options.Options.Create(options));
         var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
         context.Request.Scheme = "http";
-        context.Request.Host = new Microsoft.AspNetCore.Http.HostString("stackwatch.lumestack.local");
+        context.Request.Host = new Microsoft.AspNetCore.Http.HostString("stackwatch.example.test");
         context.Connection.RemoteIpAddress = IPAddress.Parse(peer);
         context.Request.Headers["X-Forwarded-For"] = "192.0.2.25";
         context.Request.Headers["X-Forwarded-Proto"] = "https";
         await middleware.Invoke(context);
         Assert.Equal(trusted ? "https" : "http", context.Request.Scheme);
         Assert.Equal(IPAddress.Parse(trusted ? "192.0.2.25" : peer), context.Connection.RemoteIpAddress);
-        Assert.Equal("stackwatch.lumestack.local", context.Request.Host.Value);
+        Assert.Equal("stackwatch.example.test", context.Request.Host.Value);
     }
 
     [Fact]
@@ -160,6 +159,12 @@ public sealed class AuthTests(DashboardFixture fixture) : IClassFixture<Dashboar
         await PasswordAsync(client, user.Name);
         Assert.Equal(HttpStatusCode.Redirect, (await VerifyAsync(client, Totp(user.Key))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/dashboard/logs")).StatusCode);
+        var endpoints = await client.GetAsync("/dashboard/endpoints");
+        Assert.Equal(HttpStatusCode.OK, endpoints.StatusCode);
+        var page = await endpoints.Content.ReadAsStringAsync();
+        Assert.Contains("data-tab=\"endpoints\"", page);
+        Assert.Contains("href=\"/dashboard/endpoints\"", page);
+        Assert.Contains("id=\"endpoint-status\"", page);
         using (var scope = fixture.Factory.Services.CreateScope())
         {
             var users = scope.ServiceProvider.GetRequiredService<UserManager<DashboardUser>>();
